@@ -1,4 +1,7 @@
-use eros::Result;
+use eros::{
+    Context, IntoConcreteTracedError, IntoDynTracedError, IntoUnionResult, Result, TracedError,
+    bail,
+};
 use num_bigint::BigInt;
 
 enum Value {
@@ -7,16 +10,24 @@ enum Value {
     String(String),
 }
 
-enum ValueType {
-    Int,
-    Float,
-    String,
+trait IntoValue {
+    fn into_value(self) -> Value;
 }
 
-struct FunctionSignature {
-    name: String,
-    arg_types: Vec<ValueType>,
-    ret_type: ValueType,
+trait FromValue: Sized {
+    fn from_value(v: Value) -> Result<Self>;
+}
+
+trait IntoValueMulti {
+    fn into_value_multi(self) -> Vec<Value>;
+}
+
+trait FromValueMulti: Sized {
+    fn from_value_multi(v: Vec<Value>) -> Result<Self>;
+}
+
+trait IntoFunction<A, R> {
+    fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value>;
 }
 
 #[test]
@@ -25,25 +36,119 @@ fn test() {
 
     let num = BigInt::from_str("1256").unwrap();
     let num: i32 = num.try_into().unwrap();
+
+    let value_multi = (1, 128, 12).into_value_multi();
     println!("{}", num);
 }
 
-fn sub(x: i32, y: i32) -> i32 {
-    x - y
+impl<T> IntoValue for T
+where
+    T: Into<BigInt>,
+{
+    fn into_value(self) -> Value {
+        Value::Int(self.into())
+    }
 }
 
-fn sub_dyn(args: Vec<Value>) -> Result<Value> {
-    let arg0 = args.get(0).ok_or("missing argument 0")?;
-    let arg0: i32 = match arg0 {
-        Value::Int(n) => n.try_into().map_err(|_| "argument 0 out of range")?,
-        _ => return Err("argument 0 type mismatch".into()),
-    };
-    let arg1 = args.get(1).ok_or("missing argument 1")?;
-    let arg1: i32 = match arg1 {
-        Value::Int(n) => n.try_into().map_err(|_| "argument 1 out of range")?,
-        _ => return Err("argument 1 type mismatch".into()),
-    };
+impl<T> FromValue for T
+where
+    T: TryFrom<BigInt>,
+    <T as TryFrom<BigInt>>::Error: std::error::Error + Send + Sync + 'static,
+{
+    fn from_value(v: Value) -> Result<Self> {
+        match v {
+            Value::Int(i) => i
+                .clone()
+                .try_into()
+                .traced_dyn()
+                .with_context(|| format!("BigInt to target type conversion error: {i}")),
+            _ => panic!("Unsupported type"),
+        }
+    }
+}
 
-    let ret = sub(arg0, arg1);
-    Ok(Value::Int(ret.into()))
+macro_rules! impl_into_value_multi_tuple {
+    ( $( $($name:ident),+ );+ $(;)? ) => {
+        $(
+            impl<$($name),+> IntoValueMulti for ($($name,)+)
+            where
+                $( $name: IntoValue ),+
+            {
+                fn into_value_multi(self) -> Vec<Value> {
+                    let ($($name,)+) = self;
+                    let mut v = Vec::new();
+                    $( v.push($name.into_value()); )+
+                    v
+                }
+            }
+        )+
+    };
+}
+
+impl_into_value_multi_tuple! {
+    A;
+    A, B;
+    A, B, C;
+    A, B, C, D;
+}
+
+macro_rules! count {
+    ($($xs:ident),* $(,)?) => {
+        <[()]>::len(&[ $( { let _ = stringify!($xs); () } ),* ])
+    };
+}
+
+macro_rules! impl_from_value_multi_tuple {
+    ( $( $($name:ident),+ );+ $(;)? ) => {
+        $(
+            impl<$($name),+> FromValueMulti for ($($name,)+)
+            where
+                $( $name: FromValue ),+
+            {
+                fn from_value_multi(v: Vec<Value>) -> Result<Self> {
+                    const LEN: usize = count!($($name),+);
+                    if v.len() != LEN {
+                        bail!("Argument length mismatch");
+                    }
+                    let mut it = v.into_iter();
+                    Ok((
+                        $(
+                            <$name as FromValue>::from_value(it.next().unwrap())?,
+                        )+
+                    ))
+                }
+            }
+        )+
+    };
+}
+
+impl_from_value_multi_tuple! {
+    A;
+    A, B;
+    A, B, C;
+    A, B, C, D;
+}
+
+impl<F, A, R> IntoFunction<A, R> for F
+where
+    F: FnMut(A) -> R,
+    A: FromValueMulti,
+    R: IntoValue,
+{
+    fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value> {
+        let args = A::from_value_multi(args).context("args into tuple error")?;
+        let ret = self(args);
+        Ok(ret.into_value())
+    }
+}
+
+#[test]
+fn test_fn_trait() {
+    let con = 2;
+    let sub = move |(x, y): (i32, i32)| x - y - con;
+    let args = (10, 4).into_value_multi();
+    let mut f = sub;
+    let ret = f.call_with_vec_value(args).unwrap();
+    let ret: i32 = FromValue::from_value(ret).unwrap();
+    assert_eq!(ret, 4);
 }
