@@ -81,16 +81,27 @@ pub fn parse_input(input: &str) -> Result<Ast> {
     parser()
         .parse(token_stream)
         .into_result()
-        .map_err(|e| ParseError {})
+        .map_err(|e| ParseError::from_vec_rich(e))
         .traced_dyn()
         .context("ParseError")
 }
 
 #[derive(Debug, Clone)]
-struct ParseError {}
+struct ParseError(String);
+
+impl ParseError {
+    fn from_vec_rich(errs: Vec<Rich<'_, Token>>) -> Self {
+        let mut msg = String::new();
+        for err in errs {
+            msg.push_str(&format!("{}\n", err));
+        }
+        ParseError(msg)
+    }
+}
+
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ParseError")
+        write!(f, "ParseError: {}", self.0)
     }
 }
 

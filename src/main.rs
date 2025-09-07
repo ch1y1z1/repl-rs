@@ -18,4 +18,6 @@ fn main() {
     let v = rustua.eval(r#"repeat("some string\n", 1+2)"#).unwrap();
     let s: String = FromValue::from_value(v.clone()).unwrap();
     println!("Result: {s}");
+
+    let _ = rustua.eval(r#"some err string"#).unwrap();
 }
