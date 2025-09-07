@@ -1,8 +1,7 @@
-use eros::{
-    Context, IntoConcreteTracedError, IntoDynTracedError, IntoUnionResult, Result, TracedError,
-    bail,
-};
+use eros::{Context, IntoDynTracedError, Result, bail};
 use num_bigint::BigInt;
+
+use crate::number::NumInt;
 
 enum Value {
     Int(BigInt),
@@ -30,29 +29,30 @@ trait IntoFunction<A, R> {
     fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value>;
 }
 
-#[test]
-fn test() {
-    use std::str::FromStr;
-
-    let num = BigInt::from_str("1256").unwrap();
-    let num: i32 = num.try_into().unwrap();
-
-    let value_multi = (1, 128, 12).into_value_multi();
-    println!("{}", num);
-}
-
 impl<T> IntoValue for T
 where
-    T: Into<BigInt>,
+    T: Into<BigInt> + NumInt,
 {
     fn into_value(self) -> Value {
         Value::Int(self.into())
     }
 }
 
+impl IntoValue for f64 {
+    fn into_value(self) -> Value {
+        Value::Float(self)
+    }
+}
+
+impl IntoValue for String {
+    fn into_value(self) -> Value {
+        Value::String(self)
+    }
+}
+
 impl<T> FromValue for T
 where
-    T: TryFrom<BigInt>,
+    T: TryFrom<BigInt> + NumInt,
     <T as TryFrom<BigInt>>::Error: std::error::Error + Send + Sync + 'static,
 {
     fn from_value(v: Value) -> Result<Self> {
@@ -62,7 +62,25 @@ where
                 .try_into()
                 .traced_dyn()
                 .with_context(|| format!("BigInt to target type conversion error: {i}")),
-            _ => panic!("Unsupported type"),
+            _ => bail!("Unsupported type"),
+        }
+    }
+}
+
+impl FromValue for String {
+    fn from_value(v: Value) -> Result<Self> {
+        match v {
+            Value::String(s) => Ok(s),
+            _ => bail!("Unsupported type"),
+        }
+    }
+}
+
+impl FromValue for f64 {
+    fn from_value(v: Value) -> Result<Self> {
+        match v {
+            Value::Float(f) => Ok(f),
+            _ => bail!("Unsupported type"),
         }
     }
 }
@@ -151,4 +169,24 @@ fn test_fn_trait() {
     let ret = f.call_with_vec_value(args).unwrap();
     let ret: i32 = FromValue::from_value(ret).unwrap();
     assert_eq!(ret, 4);
+}
+
+#[test]
+fn test_fn_trait_multi_type() {
+    let repeat = |(s, n): (String, usize)| s.repeat(n);
+    let args = ("ab".to_string(), 3).into_value_multi();
+    let mut f = repeat;
+    let ret = f.call_with_vec_value(args).unwrap();
+    let ret: String = FromValue::from_value(ret).unwrap();
+    assert_eq!(ret, "ababab".to_string());
+}
+
+#[test]
+fn test_fn_trait_float() {
+    let div = |(x, y): (f64, f64)| x / y;
+    let args = (5.0f64, 2.0f64).into_value_multi();
+    let mut f = div;
+    let ret = f.call_with_vec_value(args).unwrap();
+    let ret: f64 = FromValue::from_value(ret).unwrap();
+    assert_eq!(ret, 2.5);
 }
