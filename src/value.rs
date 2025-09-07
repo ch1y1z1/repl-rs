@@ -1,32 +1,57 @@
+use std::marker::PhantomData;
+
 use eros::{Context, IntoDynTracedError, Result, bail};
 use num_bigint::BigInt;
 
 use crate::number::NumInt;
 
-enum Value {
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
     Int(BigInt),
     Float(f64),
     String(String),
 }
 
-trait IntoValue {
+pub trait IntoValue {
     fn into_value(self) -> Value;
 }
 
-trait FromValue: Sized {
+pub trait FromValue: Sized {
     fn from_value(v: Value) -> Result<Self>;
 }
 
-trait IntoValueMulti {
+pub trait IntoValueMulti {
     fn into_value_multi(self) -> Vec<Value>;
 }
 
-trait FromValueMulti: Sized {
+pub trait FromValueMulti: Sized {
     fn from_value_multi(v: Vec<Value>) -> Result<Self>;
 }
 
-trait IntoFunction<A, R> {
+pub trait DynFunction {
     fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value>;
+}
+
+struct FnAdapter<F, A, R> {
+    f: F,
+    _marker: PhantomData<(A, R)>,
+}
+
+impl<F, A, R> FnAdapter<F, A, R> {
+    fn new(f: F) -> Self {
+        Self {
+            f,
+            _marker: PhantomData,
+        }
+    }
+}
+
+pub trait IntoDynFn: Sized {
+    fn into_dyn_fn<A, R>(self) -> Box<dyn DynFunction>
+    where
+        Self: 'static + FnMut(A) -> R,
+        A: FromValueMulti + 'static,
+        R: IntoValue + 'static;
 }
 
 impl<T> IntoValue for T
@@ -147,16 +172,28 @@ impl_from_value_multi_tuple! {
     A, B, C, D;
 }
 
-impl<F, A, R> IntoFunction<A, R> for F
+// 真正的实现：现在 A/R 出现在 Self 上了 -> 不会再 E0207
+impl<F, A, R> DynFunction for FnAdapter<F, A, R>
 where
     F: FnMut(A) -> R,
     A: FromValueMulti,
     R: IntoValue,
 {
     fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value> {
-        let args = A::from_value_multi(args).context("args into tuple error")?;
-        let ret = self(args);
-        Ok(ret.into_value())
+        let a = A::from_value_multi(args).context("args into tuple error")?;
+        let r = (self.f)(a);
+        Ok(r.into_value())
+    }
+}
+
+impl<F> IntoDynFn for F {
+    fn into_dyn_fn<A, R>(self) -> Box<dyn DynFunction>
+    where
+        F: 'static + FnMut(A) -> R,
+        A: FromValueMulti + 'static,
+        R: IntoValue + 'static,
+    {
+        Box::new(FnAdapter::<F, A, R>::new(self))
     }
 }
 
@@ -165,7 +202,7 @@ fn test_fn_trait() {
     let con = 2;
     let sub = move |(x, y): (i32, i32)| x - y - con;
     let args = (10, 4).into_value_multi();
-    let mut f = sub;
+    let mut f = sub.into_dyn_fn();
     let ret = f.call_with_vec_value(args).unwrap();
     let ret: i32 = FromValue::from_value(ret).unwrap();
     assert_eq!(ret, 4);
@@ -175,7 +212,7 @@ fn test_fn_trait() {
 fn test_fn_trait_multi_type() {
     let repeat = |(s, n): (String, usize)| s.repeat(n);
     let args = ("ab".to_string(), 3).into_value_multi();
-    let mut f = repeat;
+    let mut f = repeat.into_dyn_fn();
     let ret = f.call_with_vec_value(args).unwrap();
     let ret: String = FromValue::from_value(ret).unwrap();
     assert_eq!(ret, "ababab".to_string());
@@ -185,7 +222,7 @@ fn test_fn_trait_multi_type() {
 fn test_fn_trait_float() {
     let div = |(x, y): (f64, f64)| x / y;
     let args = (5.0f64, 2.0f64).into_value_multi();
-    let mut f = div;
+    let mut f = div.into_dyn_fn();
     let ret = f.call_with_vec_value(args).unwrap();
     let ret: f64 = FromValue::from_value(ret).unwrap();
     assert_eq!(ret, 2.5);

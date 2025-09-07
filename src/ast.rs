@@ -1,19 +1,18 @@
+use eros::{Context, IntoDynTracedError, Result};
 use std::str::FromStr;
 
 use crate::token::Token;
-use chumsky::{input::ValueInput, prelude::*};
+use chumsky::{
+    input::{Stream, ValueInput},
+    prelude::*,
+};
+use logos::Logos;
 
+use crate::value::Value;
 use num_bigint::BigInt;
 
 #[derive(Debug, Clone, PartialEq)]
-enum Value {
-    Int(BigInt),
-    Float(f64),
-    String(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Ast {
+pub enum Ast {
     Call(String, Vec<Ast>),
     Constant(Value),
 }
@@ -69,6 +68,33 @@ where
         choice((add_sub_expr, func_call))
     })
 }
+
+pub fn parse_input(input: &str) -> Result<Ast> {
+    let tokens = Token::lexer(&input).spanned().map(|(tok, span)| match tok {
+        Ok(t) => (t, span.into()),
+        Err(_) => (Token::Error, span.into()),
+    });
+
+    let token_stream =
+        Stream::from_iter(tokens).map((0..input.len()).into(), |(tok, span): (_, _)| (tok, span));
+
+    parser()
+        .parse(token_stream)
+        .into_result()
+        .map_err(|e| ParseError {})
+        .traced_dyn()
+        .context("ParseError")
+}
+
+#[derive(Debug, Clone)]
+struct ParseError {}
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ParseError")
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 #[test]
 fn test_parse() {
