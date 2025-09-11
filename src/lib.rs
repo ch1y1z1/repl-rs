@@ -1,6 +1,7 @@
 mod ast;
 mod eval;
 mod number;
+mod stdlib;
 mod token;
 mod value;
 

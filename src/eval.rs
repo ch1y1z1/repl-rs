@@ -2,8 +2,10 @@ use eros::{Context, Result};
 use std::collections::HashMap;
 
 use crate::{
+    IntoDynFn,
     ast::{Ast, parse_input},
-    value::{DynFunction, Value},
+    stdlib::Stdlib,
+    value::{DynFunction, FromValueMulti, IntoValue, Value},
 };
 
 pub struct Rustua {
@@ -15,10 +17,26 @@ impl Rustua {
         Self {
             global_functions: HashMap::new(),
         }
+        .prepare_stdlib()
     }
 
-    pub fn register_function(mut self, name: &str, func: Box<dyn DynFunction>) -> Self {
-        self.global_functions.insert(name.to_string(), func);
+    pub fn register_function<F, A, R>(mut self, name: &str, func: F) -> Self
+    where
+        F: IntoDynFn + 'static + FnMut(A) -> R,
+        A: FromValueMulti + 'static,
+        R: IntoValue + 'static,
+    {
+        self.global_functions
+            .insert(name.to_string(), func.into_dyn_fn());
+        self
+    }
+
+    pub fn register_function_raw<F>(mut self, name: &str, func: F) -> Self
+    where
+        F: FnMut(Vec<Value>) -> Value + 'static,
+    {
+        self.global_functions
+            .insert(name.to_string(), Box::new(func));
         self
     }
 
