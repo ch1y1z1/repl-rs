@@ -1,3 +1,4 @@
+use super::escape_character::ParseEscapeCharacter;
 use logos::Logos;
 
 #[derive(Logos, Clone, PartialEq, Debug)]
@@ -21,7 +22,7 @@ pub enum Token {
     #[regex(r#"-?(?:0|[1-9]\d*)"#, |r| r.slice().to_owned())]
     Int(String),
     #[regex(r#"-?(?:(?:0|[1-9]\d*)\.\d*(?:[eE][+\-]?\d+)?|\.\d+(?:[eE][+\-]?\d+)?|(?:0|[1-9]\d*)(?:[eE][+\-]?\d+))"#,
-        |r| r.slice().to_owned())]
+        |r| r.slice().parse_escape_character().unwrap())]
     Float(String),
     #[regex(r#""(?:[^"\\\u0000-\u001F]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#,
         |r| r.slice().to_owned().trim_matches('"').to_owned())]
