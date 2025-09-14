@@ -3,6 +3,7 @@ use logos::Logos;
 
 #[derive(Logos, Clone, PartialEq, Debug)]
 #[logos(skip r"[ \t\n\f]+")]
+#[logos(error = String)]
 pub enum Token {
     Error,
     #[token("(")]
@@ -22,10 +23,12 @@ pub enum Token {
     #[regex(r#"-?(?:0|[1-9]\d*)"#, |r| r.slice().to_owned())]
     Int(String),
     #[regex(r#"-?(?:(?:0|[1-9]\d*)\.\d*(?:[eE][+\-]?\d+)?|\.\d+(?:[eE][+\-]?\d+)?|(?:0|[1-9]\d*)(?:[eE][+\-]?\d+))"#,
-        |r| r.slice().parse_escape_character().unwrap())]
+        |r| r.slice().to_owned())]
     Float(String),
     #[regex(r#""(?:[^"\\\u0000-\u001F]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*""#,
-        |r| r.slice().to_owned().trim_matches('"').to_owned())]
+        |r| r.slice().parse_escape_character()
+            .map_err(|_| "invalid escape character".to_string())
+            .and_then(|s| Ok(s.trim_matches('"').to_owned())))]
     String(String),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |r| r.slice().to_owned())]
     Var(String),
