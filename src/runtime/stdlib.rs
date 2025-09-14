@@ -15,6 +15,7 @@ impl Stdlib for Runtime {
             .register_function_raw("sub", sub)
             .register_function_raw("mul", mul)
             .register_function_raw("div", div)
+            .register_function_raw("neg", neg)
             .register_function_raw("float", float)
             .register_function_raw("int", int)
     }
@@ -68,5 +69,19 @@ fn int(args: Vec<Value>) -> Result<Value> {
         Value::Int(a) => Ok(Value::Int(a.clone())),
         Value::Float(a) => Ok(Value::Int(a.to_bigint().unwrap())),
         Value::String(a) => Ok(Value::Int(a.parse().unwrap())),
+    }
+}
+
+fn neg(args: Vec<Value>) -> Result<Value> {
+    if args.len() != 1 {
+        bail!("neg function takes 1 argument");
+    }
+
+    let a = &args[0];
+
+    match a {
+        Value::Int(a) => Ok(Value::Int(-a)),
+        Value::Float(a) => Ok(Value::Float(-a)),
+        _ => bail!("neg function takes 1 argument of type Int or Float"),
     }
 }
