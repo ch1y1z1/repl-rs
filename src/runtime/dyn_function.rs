@@ -45,10 +45,10 @@ where
 
 impl<F> DynFunction for F
 where
-    F: FnMut(Vec<Value>) -> Value,
+    F: FnMut(Vec<Value>) -> Result<Value>,
 {
     fn call_with_vec_value(&mut self, args: Vec<Value>) -> Result<Value> {
-        Ok((self)(args))
+        (self)(args)
     }
 }
 

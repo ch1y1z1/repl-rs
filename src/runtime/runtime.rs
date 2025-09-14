@@ -32,7 +32,7 @@ impl Runtime {
 
     pub fn register_function_raw<F>(mut self, name: &str, func: F) -> Self
     where
-        F: FnMut(Vec<Value>) -> Value + 'static,
+        F: FnMut(Vec<Value>) -> Result<Value> + 'static,
     {
         self.global_functions
             .insert(name.to_string(), Box::new(func));
